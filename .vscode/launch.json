@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "factoriomod",
+            "request": "launch",
+            "name": "Factorio Mod Debug (Settings & Data)",
+            "hookSettings": false,
+            "hookData": false,
+            "hookMode": "debug",
+            "hookControl": ["transfert_controller"],
+            "adjustMods": {
+                "precise_transfer" : true
+            }
+        },
+       {
+            "type": "factoriomod",
+            "request": "launch",
+            "name": "Factorio Mod Debug (Profile)",
+            "hookMode": "profile"
+        }
+    ]
+}
