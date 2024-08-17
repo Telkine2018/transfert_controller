@@ -4,22 +4,21 @@ local prefix = commons.prefix
 local png = commons.png
 
 local function create_base(base_name)
-
     local entity = table.deepcopy(
-                       data.raw['arithmetic-combinator']['arithmetic-combinator'])
+        data.raw['arithmetic-combinator']['arithmetic-combinator'])
     local decider = data.raw['decider-combinator']['decider-combinator']
 
     entity.name = base_name
     entity.icon = png(base_name .. '-item')
     entity.icon_mipmaps = 0
-    entity.minable = {mining_time = 0.5, result = base_name}
+    entity.minable = { mining_time = 0.5, result = base_name }
     entity.circuit_wire_max_distance = 10
     entity.max_health = 500
     entity.active_energy_usage = '1KW'
-    entity.energy_source = {type = "void"}
+    entity.energy_source = { type = "void" }
     entity.render_no_network_icon = false
     entity.render_no_power_icon = false
-    entity.collision_box = {{-0.1, -0.6}, {0.1, 0.6}}
+    entity.collision_box = { { -0.1, -0.6 }, { 0.1, 0.6 } }
 
     entity.sprites = table.deepcopy(decider.sprites)
     for k, spec in pairs(entity.sprites) do
@@ -27,7 +26,7 @@ local function create_base(base_name)
             layer, layer.hr_version = layer.hr_version, nil -- only use hr version, for easier editing
             spec.layers[n] = layer
             if not layer.filename:match(
-                '^__base__/graphics/entity/combinator/hr%-decider%-combinator') then
+                    '^__base__/graphics/entity/combinator/hr%-decider%-combinator') then
                 error(
                     'hr-decider-combinator sprite sheet incompatibility detected')
             end
@@ -51,7 +50,7 @@ local function create_base(base_name)
             end
             spec.filename = png(base_name .. '-displays')
             spec.shift = table.deepcopy(decider.greater_symbol_sprites[dir]
-                                            .hr_version.shift)
+                .hr_version.shift)
         end
         ::skip::
     end
@@ -74,32 +73,83 @@ local function create_base(base_name)
             height = 1
         }
         local wire_conn = {
-            wire = {red = {0, 0}, green = {0, 0}},
-            shadow = {red = {0, 0}, green = {0, 0}}
+            wire = { red = { 0, 0 }, green = { 0, 0 } },
+            shadow = { red = { 0, 0 }, green = { 0, 0 } }
         }
-        data:extend{
+        data:extend {
             entity, {
-                type = 'constant-combinator',
-                name = base_name .. '-cc',
-                flags = {'placeable-off-grid'},
-                collision_mask = {},
-                item_slot_count = 64,
-                circuit_wire_max_distance = 3,
-                sprites = invisible_sprite,
-                activity_led_sprites = invisible_sprite,
-                activity_led_light_offsets = {{0, 0}, {0, 0}, {0, 0}, {0, 0}},
-                circuit_wire_connection_points = {
-                    wire_conn, wire_conn, wire_conn, wire_conn
-                },
-                draw_circuit_wires = false
-            }
+            type = 'constant-combinator',
+            name = base_name .. '-cc',
+            flags = { 'placeable-off-grid' },
+            collision_mask = {},
+            item_slot_count = 64,
+            circuit_wire_max_distance = 3,
+            sprites = invisible_sprite,
+            activity_led_sprites = invisible_sprite,
+            activity_led_light_offsets = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } },
+            circuit_wire_connection_points = {
+                wire_conn, wire_conn, wire_conn, wire_conn
+            },
+            draw_circuit_wires = false
+        }
         }
     end
 end
 
 create_base(commons.device_name)
 
-data:extend{
+local recipe = {
+    type = 'recipe',
+    name = commons.device_name,
+    enabled = false,
+    ingredients = { { 'electronic-circuit', 10 }, { 'advanced-circuit', 5 } },
+    result = commons.device_name
+}
+
+local tech = {
+    type = 'technology',
+    name = commons.device_name,
+    icon_size = 144,
+    icon = png('tech'),
+    effects = { { type = 'unlock-recipe', recipe = commons.device_name } },
+    unit = {
+        count = 200,
+        ingredients = {
+            { 'automation-science-pack', 1 }, { 'logistic-science-pack', 1 }
+        },
+        time = 15
+    },
+    order = 'a-d-d-z'
+}
+
+if mods["nullius"] then
+
+	recipe.ingredients = {
+		{"arithmetic-combinator", 2},
+		{"copper-cable", 10}
+	}
+	recipe.category = "tiny-crafting"
+	recipe.always_show_made_in = true
+	recipe.name = "nullius-" .. recipe.name
+
+	
+	tech.name = "nullius-" .. tech.name
+	tech.order = "nullius-z-z-z"
+	tech.unit = {
+		count = 100,
+		ingredients = {
+			{"nullius-geology-pack", 1}, {"nullius-climatology-pack", 1}, {"nullius-mechanical-pack", 1}, {"nullius-electrical-pack", 1}
+		},
+		time = 25
+	}
+	tech.prerequisites = {"nullius-checkpoint-optimization", "nullius-traffic-control"}
+	tech.ignore_tech_tech_cost_multiplier = true
+	tech.effects = {
+		{ type = 'unlock-recipe', recipe = recipe.name }
+	}
+end
+
+data:extend {
 
     -- Item
     {
@@ -112,26 +162,7 @@ data:extend{
         place_result = commons.device_name,
         stack_size = 10
     }, -- Recipe
-    {
-        type = 'recipe',
-        name = commons.device_name,
-        enabled = false,
-        ingredients = {{'electronic-circuit', 10}, {'advanced-circuit', 5}},
-        result = commons.device_name
-    }, -- Technology
-    {
-        type = 'technology',
-        name = commons.device_name,
-        icon_size = 144,
-        icon = png('tech'),
-        effects = {{type = 'unlock-recipe', recipe = commons.device_name}},
-        unit = {
-            count = 200,
-            ingredients = {
-                {'automation-science-pack', 1}, {'logistic-science-pack', 1}
-            },
-            time = 15
-        },
-        order = 'a-d-d-z'
-    }
+    recipe,
+    -- Technology
+    tech
 }
