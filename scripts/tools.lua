@@ -1,7 +1,8 @@
-
 local tools = {}
-local log_index = 1
 local tracing = false
+
+tools.tracing = tracing
+tools.trace_console = false
 
 ---@param msg LocalisedString?
 function tools.print(msg)
@@ -10,19 +11,33 @@ function tools.print(msg)
     log(msg)
 end
 
+local print_settings = { game_state = false, skip = defines.print_skip.never }
+
+local log_index = 1
+
 ---@param msg LocalisedString?
 local function debug(msg)
     if not tracing then return end
 
     if not msg then return end
 
-    if type(msg) == "string" then
-    msg = "[" .. log_index .. "] " .. msg
+    local time
+    if game then
+        time = game.tick
     else
-        table.insert(msg, 2, "[" .. log_index .. "] ")
+        time = log_index
+    end
+
+    if type(msg) == "string" then
+        msg = "[" .. time .. "] " .. msg
+    else
+        table.insert(msg, 2, "[" .. time .. "] ")
     end
     log_index = log_index + 1
-    tools.print(msg)
+    log(msg)
+    if tools.trace_console then
+        game.print(msg, print_settings)
+    end
 end
 
 tools.debug = debug
@@ -33,22 +48,27 @@ local function cdebug(cond, msg) if cond then debug(msg) end end
 
 tools.cdebug = cdebug
 
----@param trace boolean
-function tools.set_tracing(trace) tracing = trace end
+---@param value boolean
+function tools.set_tracing(value) 
+    tracing = value 
+    tools.tracing = value
+end
 
 function tools.is_tracing() return tracing end
 
 ---@param o any
-function tools.strip(o) return string.gsub(serpent.block(o), "%s", "") end
+function tools.strip(o)
+    local s = string.gsub(serpent.block(o), "%s", "")
+    return s
+end
 
 local strip = tools.strip
 
 
 ---@param player LuaPlayer
----@return table<string, any>
+---@return {[string]:any}
 function tools.get_vars(player)
-
-    ---@type table<integer, table<string, any>>
+    ---@type {[integer]: {[string]:any}}
     local players = global.players
     if players == nil then
         players = {}
@@ -106,10 +126,22 @@ function tools.get_id()
     return id
 end
 
----@param n string?
+---@return integer?
+function tools.upgrade_id(newid)
+    if not newid then
+        return
+    end
+    local id = global.id or 1
+    if id <= newid then
+        global.id = newid + 1
+    end
+end
+
+---@param n any
 ---@return string
 function tools.comma_value(n) -- credit http://richard.warburton.it
     if not n then return "" end
+    if type(n) ~= "string" then n = tostring(n) end
     local left, num, right = string.match(n, '^([^%d]*%d)(%d*)(.-)$')
     return left .. (num:reverse():gsub('(%d%d%d)', '%1,'):reverse()) .. right
 end
@@ -145,6 +177,22 @@ function tools.table_merge(table_list)
     return result
 end
 
+---@generic T:table
+---@param src T
+---@return T
+local function table_deep_copy(src)
+    if not src then return nil end
+    local copy = {}
+    for key, value in pairs(src) do
+        if type(value) == "table" then
+            value = table_deep_copy(value)
+        end
+        copy[key] = value
+    end
+    return copy
+end
+tools.table_deep_copy = table_deep_copy
+
 ---@generic T
 ---@param src T[]?
 ---@return T[]?
@@ -171,9 +219,9 @@ end
 ---@generic VALUE
 ---@generic MAPPED_KEY
 ---@generic MAPPED_VALUE
----@param t table<KEY, VALUE>
+---@param t {[KEY]: VALUE}
 ---@param f fun(k:KEY, v:VALUE) : MAPPED_KEY, MAPPED_VALUE
----@return table<MAPPED_KEY, MAPPED_VALUE>
+---@return {[MAPPED_KEY]: MAPPED_VALUE}
 function tools.table_map(t, f)
     local result = {}
     for key, value in pairs(t) do
@@ -237,7 +285,7 @@ end
 
 ---@param event integer
 ---@param handler fun(EventData)
----@param filters ({["filter"]:string}|{["name"]:string})[] | nil
+---@param filters ({["filter"]:string}|{["name"]:string})[]?
 function tools.on_event(event, handler, filters)
 
     local previous = script.get_event_handler(event)
@@ -283,20 +331,24 @@ function tools.on_nth_tick(tick, handler)
     end
 end
 
----@type function
-local on_load_handler
+---@type fun()[]
+local on_load_handlers
+
+local function on_load_handler()
+    if on_load_handlers then
+        for _, handler in pairs(on_load_handlers) do
+            handler()
+        end
+    end
+end
 
 ---@param handler function
 function tools.on_load(handler)
-    if not on_load_handler then
-        on_load_handler = handler
-        script.on_load(function() on_load_handler() end)
+    if on_load_handlers then
+        table.insert(on_load_handlers, handler)
     else
-        local previous = on_load_handler
-        on_load_handler = function()
-            previous()
-            handler()
-        end
+        on_load_handlers = { handler }
+        script.on_load(on_load_handler)
     end
 end
 
@@ -323,23 +375,20 @@ end
 
 function tools.fire_on_load() load_on_init_flag = true end
 
----@type fun(c:ConfigurationChangedData)
-local on_configuration_changed_handler
+---@type fun(c:ConfigurationChangedData)[]
+local configuration_changed_handlers
 
 ---@param handler fun(c:ConfigurationChangedData)
 function tools.on_configuration_changed(handler)
-    if not on_configuration_changed_handler then
-        on_configuration_changed_handler = handler
+    if not configuration_changed_handlers then
+        configuration_changed_handlers = { handler }
         script.on_configuration_changed(function(data)
-            on_configuration_changed_handler(data)
+            for _, f_handlers in pairs(configuration_changed_handlers) do
+                f_handlers(data)
+            end
         end)
     else
-        local previous = on_configuration_changed_handler
-        ---@param c ConfigurationChangedData
-        on_configuration_changed_handler = function(c)
-            previous(c)
-            handler(c)
-        end
+        table.insert(configuration_changed_handlers, handler)
     end
 end
 
@@ -357,8 +406,9 @@ function tools.on_debug_init(f)
         end
     else
         on_debug_init_handler = f
+        tools.on_event(defines.events.on_tick,
         ---@param e EventData.on_tick
-        tools.on_event(defines.events.on_tick, function(e)
+            function(e)
             if (on_debug_init_handler) then
                 on_debug_init_handler(e)
                 on_debug_init_handler = nil
@@ -401,25 +451,17 @@ local handler_tag = "handler_name"
 
 ---@param e EventData
 local function call_handler(e)
-
-    ---@type LuaGuiElement?
-    local element = e.element
+    local element = e.element --[[@as LuaGuiElement]]
     if not(element and element.valid) then return end
 
     local name
-    if element.tags then
-        name = element.tags[handler_tag] --[[@as string]]
-    end
+    if element.tags then name = element.tags[handler_tag] --[[@as string]] end
     if not name then 
         name = element.name
-        if not name then
-            return 
-        end
+        if not name then return end
     end
     local handler = handler_map[name .. "/" .. e.name]
-    if handler then
-        handler(e)
-    end
+    if handler then handler(e) end
 end
 
 ---@param name string
@@ -431,7 +473,8 @@ function tools.on_named_event(name, event, callback)
         handler_registered[event] = true
         tools.on_event(event, call_handler)
     end
-    handler_map[name .. "/" .. event] = callback
+    local event_index = name .. "/" .. event
+    handler_map[event_index] = callback
 end
 
 ---@param element LuaGuiElement
@@ -452,8 +495,9 @@ end
 ---@param name string
 ---@return LuaGuiElement?
 local function get_child(parent, name)
-
+    ---@type LuaGuiElement?
     local child = parent[name]
+
     if child then return child end
 
     local children = parent.children
@@ -663,7 +707,7 @@ end
 
 local gmatch = string.gmatch
 
----@param sprite string
+---@param sprite string?
 ---@return SignalID?
 function tools.sprite_to_signal(sprite)
     if not sprite then return nil end
@@ -688,6 +732,34 @@ function tools.get_event_name(index)
         if i == index then return name end
     end
     return "[unknown:"..index.."]"
+end
+
+---@param type string
+---@param name string
+---@return any
+local function check_signal(type, name)
+    if type == "virtual" then
+        return game.virtual_signal_prototypes[name]
+    elseif type == "item" then
+        return game.item_prototypes[name]
+    elseif type == "fluid" then
+        return game.fluid_prototypes[name]
+    end
+    return true
+end
+
+---@param sprite string?
+---@param default string?
+---@return string?
+function tools.check_sprite(sprite, default)
+    if not sprite then return nil end
+    local signal = tools.sprite_to_signal(sprite)
+    ---@cast signal -nil
+    if check_signal(signal.type, signal.name) then
+        return sprite
+    else
+        return default
+    end
 end
 
 --- Find dimension of an entity
@@ -723,13 +795,14 @@ function tools.destroy_entities(master, entity_names)
     for _, e in pairs(entities) do if e.valid then e.destroy() end end
 end
 
-
----@param index integer
+---@param index integer | defines.train_state
 ---@param base table<string, integer>
 ---@return string
 function tools.get_constant_name(index, base)
+    if base then
     for name, i in pairs(base) do if i == index then return name end end
-    return "[unknown:"..index.."]"
+    end
+    return  tostring(index)
 end
 
 ------------------------------------------------
@@ -867,5 +940,190 @@ function tools.get_item_stack_size(name)
     stack_size_map[name] = stack_size
     return stack_size
 end
+
+local item_prototypes_map = {}
+
+---@param name string
+---@return LuaItemPrototype
+function tools.get_item_prototype(name)
+    local proto = item_prototypes_map[name]
+    if proto then return proto end
+
+    proto = game.item_prototypes[name]
+    item_prototypes_map[name] = proto
+    return proto
+end
+
+---@param children LuaGuiElement[]
+---@param element LuaGuiElement
+---@return integer
+function tools.index_of(children, element)
+    local index = 1
+    for _, c in pairs(children) do
+        if c == element then
+            return index
+        end
+        index = index + 1
+    end
+    return index
+end
+
+---@param value any
+---@return string
+function tools.number_to_text(value)
+    if value == nil then
+        return ""
+    end
+    return tostring(value)
+end
+
+---@param s string?
+---@return string
+function tools.trim(s)
+    if not s then return "" end
+    return s:match "^%s*(.-)%s*$"
+end
+
+---@param text string?
+---@return number?
+function tools.text_to_number(text)
+    if text == nil then return nil end
+    if text == "" then return nil end
+    return tonumber(text)
+end
+
+local panel_names = {}
+
+---@param name string
+function tools.add_panel_name(name)
+    panel_names[name] = true
+end
+
+---@param player LuaPlayer
+---@param name string
+---@return LuaGuiElement?
+function tools.get_panel(player, name)
+    for _, child in pairs(player.gui.children) do
+        local panel = child[name]
+        if panel then return panel end
+    end
+    return nil
+end
+
+---@param player LuaPlayer
+---@param name string
+function tools.close_panel(player, name)
+    local panel = tools.get_panel(player, name)
+    if panel then panel.destroy() end
+end
+
+local close_panel = tools.close_panel
+
+---@param player LuaPlayer
+function tools.close_panels(player)
+    for name, _ in pairs(panel_names) do
+        close_panel(player, name)
+    end
+end
+
+---@class Params.create_standard_panel
+---@field container LuaGuiElement?
+---@field panel_name string
+---@field title LocalisedString
+---@field is_draggable boolean?
+---@field title_menu_func fun(titleflow:LuaGuiElement)?
+---@field close_button_name string                  @ nil if no close button
+---@field close_button_tooltip LocalisedString
+---@field close_button_filter string[]?
+---@field create_inner_frame boolean?
+
+---@param player LuaPlayer
+---@param params Params.create_standard_panel
+---@return LuaGuiElement
+---@return LuaGuiElement
+function tools.create_standard_panel(player, params)
+    local container = params.container
+    if not container then
+        container = player.gui.screen
+    end
+
+    ---@type LuaGuiElement
+    local frame = container.add {
+        type = "frame",
+        direction = 'vertical',
+        name = params.panel_name
+    }
+
+    local title = params.title
+    local titleflow = frame.add { type = "flow" }
+    titleflow.add {
+        type = "label",
+        caption = title,
+        style = "frame_title",
+        ignored_by_interaction = true,
+        name = "title"
+    }
+
+    local drag = titleflow.add {
+        type = "empty-widget"
+    }
+    if params.is_draggable then
+        drag.style = "flib_titlebar_drag_handle"
+        drag.drag_target = frame
+        titleflow.drag_target = frame
+    end
+
+    if params.title_menu_func then
+        params.title_menu_func(titleflow)
+    end
+
+    if params.close_button_name then
+        titleflow.add {
+            type = "sprite-button",
+            name = params.close_button_name,
+            tooltip = params.close_button_tooltip,
+            style = "frame_action_button",
+            mouse_button_filter = params.close_button_filter or { "left" },
+            sprite = "utility/close_white",
+            hovered_sprite = "utility/close_black"
+        }
+    end
+
+    local inner_frame
+    if params.create_inner_frame then
+        inner_frame = frame.add {
+            type = "frame",
+            direction = "vertical",
+            style = "inside_shallow_frame_with_padding"
+        }
+        inner_frame.style.vertically_stretchable = true
+        inner_frame.style.horizontally_stretchable = true
+    else
+        inner_frame = frame.add {
+            type = "frame",
+            direction = "vertical"
+        }
+        inner_frame.style.vertically_stretchable = true
+        inner_frame.style.horizontally_stretchable = true
+    end
+    return frame, inner_frame
+end
+
+local abs = math.abs
+local math_precision = 0.000001
+local round_digit = 2
+
+---@param value number
+---@return number
+local function fround(value)
+    if abs(value) <= math_precision then
+        return 0
+    end
+    local precision = math.pow(10, math.floor(0.5 + math.log(math.abs(value), 10)) - round_digit)
+    value = math.floor(value / precision) * precision
+    return value
+end
+
+tools.fround = fround
 
 return tools
