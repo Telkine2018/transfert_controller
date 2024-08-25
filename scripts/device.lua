@@ -1082,6 +1082,7 @@ local migrations_table = {
 }
 
 local function on_configuration_changed(data)
+    Runtime.initialize()
     migration.on_config_changed(data, migrations_table)
 end
 
