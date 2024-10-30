@@ -11,26 +11,31 @@ local Runtime = require("scripts.runtime")
 local get_vars = tools.get_vars
 local device_name = commons.device_name
 
+local gmatch = string.gmatch
+local item_splitter = "([^/]+)"
+
 ---@type EntityMap<Device>
 local devices
 
 ---@type Runtime
 local devices_runtime
 
-local filterSourceToCircuitIndex = {
+local filterSourceToWireConnectorId = {
 
-    [FilterSource.green_signal] = "green",
-    [FilterSource.red_signal] = "red"
+    [FilterSource.green_signal] = defines.wire_connector_id.circuit_green,
+    [FilterSource.red_signal] = defines.wire_connector_id.circuit_red
 }
 
 local detection_area = settings.startup[commons.prefix .. "_detection_area"].value
 
+local wire_connector = defines.wire_connector_id
 -----------------------------------------------------
 
 ---@param entity LuaEntity
----@param wire integer
+---@param connector1 defines.wire_connector_id
+---@param connector2 defines.wire_connector_id
 ---@return LuaEntity
-local function create_cc(entity, wire)
+local function create_cc(entity, connector1, connector2)
     local cc = entity.surface.create_entity {
         name = entity.name .. '-cc',
         position = entity.position,
@@ -38,11 +43,12 @@ local function create_cc(entity, wire)
         create_build_effect_smoke = false
     }
     ---@cast cc -nil
-    entity.connect_neighbour {
-        wire = wire,
-        target_entity = cc,
-        source_circuit_id = defines.circuit_connector_id.combinator_output
-    }
+    local cb = cc.get_or_create_control_behavior() --[[@as LuaConstantCombinatorControlBehavior]]
+    if cb.sections_count == 0 then cb.add_section("") end
+
+    local cc_connector = cc.get_wire_connector(connector1, true)
+    local device_connector = entity.get_wire_connector(connector2, true)
+    cc_connector.connect_to(device_connector, false)
     cc.destructible = false
     return cc
 end
@@ -51,8 +57,8 @@ end
 local function create_ccs(device)
     -- cdebug(create_trace, "create_cc:" .. tostring(g.id))
     local entity = device.entity
-    device.out_red = create_cc(entity, defines.wire_type.red)
-    device.out_green = create_cc(entity, defines.wire_type.green)
+    device.out_red = create_cc(entity, wire_connector.circuit_red, wire_connector.combinator_output_red)
+    device.out_green = create_cc(entity, wire_connector.circuit_green, wire_connector.combinator_output_green)
 end
 
 ---@param device  Device
@@ -96,7 +102,7 @@ end
 ---@param tags Tags
 local function on_controller_built(e, tags)
     if e.name == device_name then
-        local device = new_device(e, tags)
+        new_device(e, tags)
         -- cdebug(create_trace, "on_sensor_built:" .. sensor.id)
     end
 end
@@ -140,12 +146,15 @@ local function on_entity_clone(ev)
         end
 
         create_ccs(device)
-        local red_cb = dst_device.out_red.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]
-        red_cb.parameters = device.out_red.get_or_create_control_behavior()
-            .parameters
-        local green_cb = dst_device.out_green.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]
-        green_cb.parameters = device.out_green.get_or_create_control_behavior()
-            .parameters
+        local dst_section = (dst_device.out_red.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+        local src_section = (device.out_red.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+        ---@cast src_section -nil
+        dst_section.filters = src_section.filters
+
+        dst_section = (dst_device.out_green.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+        src_section = (device.out_green.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+        ---@cast src_section -nil
+        dst_section.filters = src_section.filters
 
         if dst_id and src_id then
             devices_runtime:remove(device)
@@ -159,7 +168,7 @@ end
 
 ---@param evt EventData.on_built_entity | EventData.on_robot_built_entity | EventData.script_raised_built | EventData.script_raised_revive
 local function on_built(evt)
-    local e = evt.created_entity or evt.entity
+    local e = evt.entity
     if not e or not e.valid then return end
 
     if e.name == device_name then on_controller_built(e, evt.tags) end
@@ -184,8 +193,7 @@ tools.on_event(defines.events.on_robot_built_entity, on_built, entity_filter)
 tools.on_event(defines.events.script_raised_built, on_built, entity_filter)
 tools.on_event(defines.events.script_raised_revive, on_built, entity_filter)
 
-tools.on_event(defines.events.on_pre_player_mined_item, on_destroyed,
-    entity_filter)
+tools.on_event(defines.events.on_pre_player_mined_item, on_destroyed, entity_filter)
 tools.on_event(defines.events.on_robot_pre_mined, on_destroyed, entity_filter)
 tools.on_event(defines.events.on_entity_died, on_destroyed, entity_filter)
 tools.on_event(defines.events.script_raised_destroy, on_destroyed, entity_filter)
@@ -207,8 +215,8 @@ tools.on_load(on_load)
 local function on_init()
     -- debug("on_init")
     ---@type EntityMap<Device>
-    global.controllers = {}
-    global.device_execution_map = {}
+    storage.controllers = {}
+    storage.device_execution_map = {}
 
     tools.fire_on_load()
 end
@@ -294,6 +302,23 @@ local function get_wagon_inventory(wagon)
     return inv
 end
 
+---@param qname string
+---@return any
+---@return string
+local function get_filter(qname)
+    local split = gmatch(qname, item_splitter)
+    local name = split()
+    local quality = split()
+    ---@type any
+    local filter
+    if quality then
+        filter = { name = name, quality = quality, comparator = "=" }
+    else
+        filter = name
+    end
+    return filter, name
+end
+
 ---@param device Device
 ---@param wagons LuaEntity[]
 ---@param signal_map ItemTable
@@ -304,11 +329,11 @@ local function dispatch_slots_in_wagons1(device, wagons, signal_map)
     local max_slot = #current_inv
     local wagon_count = #wagons
 
-    for name, count in pairs(signal_map) do
-        local slot = math.ceil(count / game.item_prototypes[name].stack_size)
-
+    for qname, count in pairs(signal_map) do
+        local filter, name = get_filter(qname)
+        local slot = math.ceil(count / prototypes.item[name].stack_size)
         for i = 1, slot do
-            current_inv.set_filter(slot_index, name)
+            current_inv.set_filter(slot_index, filter)
             slot_index = slot_index + 1
             if slot_index > max_slot then
                 current_inv.set_bar(#current_inv + 1)
@@ -337,11 +362,11 @@ end
 ---@field slot_count integer
 ---@field remaining integer
 ---@field index integer
----@field slot_per_item table<string, integer>
+---@field slot_per_item table<QName, integer>
 ---@field slot_counter integer
 
 ---@class device.SortedSlots
----@field name string
+---@field qname QName
 ---@field count integer
 ---@field proto LuaItemPrototype
 
@@ -371,11 +396,12 @@ local function dispatch_slots_balanced(device, wagons, signal_map)
 
     ---@type device.SortedSlots[]
     local sorted_signals = {}
-    for name, count in pairs(signal_map) do
-        local proto = game.item_prototypes[name]
+    for qname, count in pairs(signal_map) do
+        local name = gmatch(qname, item_splitter)()
+        local proto = prototypes.item[name]
         local slot_count = math.ceil(count / proto.stack_size)
         ---@type device.SortedSlots
-        local ss = { name = name, count = slot_count, proto = proto }
+        local ss = { qname = qname, count = slot_count, proto = proto }
         table.insert(sorted_signals, ss)
     end
 
@@ -383,10 +409,11 @@ local function dispatch_slots_balanced(device, wagons, signal_map)
 
     local wd_index = 1
     for _, ss in pairs(sorted_signals) do
-        for index = 1, ss.count do
+        local filter = get_filter(ss.qname)
+        for _ = 1, ss.count do
             local wd = wagon_data[wd_index]
             if wd.remaining > 0 then
-                wd.inv.set_filter(wd.index, ss.name)
+                wd.inv.set_filter(wd.index, filter)
                 wd.index = wd.index + 1
                 wd.remaining = wd.remaining - 1
             end
@@ -394,12 +421,12 @@ local function dispatch_slots_balanced(device, wagons, signal_map)
             if wd_index > #wagon_data then wd_index = 1 end
         end
         for _, wd in pairs(wagon_data) do
-            wd.slot_per_item[ss.name] = wd.index - wd.slot_counter
+            wd.slot_per_item[ss.qname] = wd.index - wd.slot_counter
             wd.slot_counter = wd.index
         end
     end
 
-    for index, wd in ipairs(wagon_data) do
+    for _, wd in ipairs(wagon_data) do
         wd.inv.set_bar(wd.slot_count + 1 - wd.remaining)
     end
 
@@ -423,11 +450,12 @@ local function dispatch_slots_in_wagons3(device, wagons, signal_map)
 
     ---@type device.SortedSlots[]
     local sorted_signals = {}
-    for name, count in pairs(signal_map) do
-        local proto = game.item_prototypes[name]
+    for qname, count in pairs(signal_map) do
+        local name = gmatch(qname, item_splitter)()
+        local proto = prototypes.item[name]
         local slot_count = math.ceil(count / proto.stack_size)
         ---@type device.SortedSlots
-        local ss = { name = name, count = slot_count, proto = proto }
+        local ss = { qname = qname, count = slot_count, proto = proto }
         table.insert(sorted_signals, ss)
     end
 
@@ -450,8 +478,9 @@ local function dispatch_slots_in_wagons3(device, wagons, signal_map)
         local index = wd.index
         local max_index = index + count
         local inv = wd.inv
+        local filter = get_filter(ss.qname)
         while index < max_index do
-            inv.set_filter(index, ss.name)
+            inv.set_filter(index, filter)
             index = index + 1
         end
         wd.index = index
@@ -461,23 +490,22 @@ local function dispatch_slots_in_wagons3(device, wagons, signal_map)
     end
 
     for _, ss in pairs(sorted_signals) do
-        local max, max_wd = 0, nil
-        for index, wd in ipairs(wagon_data) do
+        local max_wd = nil
+        for _, wd in ipairs(wagon_data) do
             if wd.remaining >= ss.count then
-                max = wd.remaining
-                max_wd = wd
+                max_wd = ws
                 break
             end
         end
         if max_wd then apply(max_wd, ss) end
         if ss.count > 0 then
-            for index, wd in ipairs(wagon_data) do
+            for _, wd in ipairs(wagon_data) do
                 if wd.remaining > 0 then apply(wd, ss) end
                 if ss.count == 0 then break end
             end
         end
     end
-    for index, wd in ipairs(wagon_data) do
+    for _, wd in ipairs(wagon_data) do
         wd.inv.set_bar(wd.slot_count + 1 - wd.remaining)
     end
 end
@@ -490,6 +518,7 @@ local function compute_train_filters(device)
     local wagon = device.wagon
     if not wagon or not wagon.valid then return end
 
+    ---@type {[string]:integer}
     local target_content
 
     if device.filter_source == FilterSource.internal_yatm then
@@ -513,21 +542,23 @@ local function compute_train_filters(device)
     else
         target_content = {}
 
-        local circuit_index = filterSourceToCircuitIndex[device.filter_source]
-        if not circuit_index then return end
+        local wconnector = filterSourceToWireConnectorId[device.filter_source]
+        if not wconnector then return end
 
-        local circuit = device.entity.get_circuit_network(
-            defines.wire_type[circuit_index],
-            defines.circuit_connector_id.combinator_input)
+        local circuit = device.entity.get_circuit_network(wconnector)
         if not circuit then return end
 
         local signals = circuit.signals
         if not signals then return end
 
-        ---@type ItemTable
         for _, signal in pairs(signals) do
-            if signal.signal.type == 'item' and signal.count > 0 then
-                target_content[signal.signal.name] = signal.count
+            local s = signal.signal
+            if not s.type and signal.count > 0 then
+                local qname = s.name
+                ---@cast qname -nil
+                local quality = s.quality
+                if quality and quality ~= "normal" then qname = qname .. "/" .. quality end
+                target_content[qname] = signal.count
             end
         end
         device.target_content = target_content
@@ -550,10 +581,15 @@ local function compute_train_filters(device)
         wagons[i].clear_items_inside()
     end
 
-    for name, amount in pairs(train_content) do
-        local current = target_content[name]
+    for _, item in pairs(train_content) do
+        local qname = item.name
+        local quality = item.quality
+        if quality and quality ~= "normal" then qname = qname .. "/" .. quality end
+
+        local current = target_content[qname]
+        local amount = item.count
         if not current or amount > current then
-            target_content[name] = amount
+            target_content[qname] = amount
         end
     end
 
@@ -571,20 +607,21 @@ local function compute_train_filters(device)
 
     if wagon_data then
         -- content back
-        for name, count in pairs(train_content) do
+        for _, item in pairs(train_content) do
+            local name = item.name
+            local count = item.count
             local n = #wagon_data
             local wcount = math.floor(count / n)
             local sum = 0
             for i = 1, n do
                 local wd = wagon_data[i]
-                local real = wd.inv.insert { name = name, count = wcount }
-                sum = sum + (wcount - real)
+                local real = wd.inv.insert { name = name, count = wcount, quality = item.quality }
+                sum = sum + real
             end
             if sum < count then
-                sum = count - sum
                 for i = 1, n do
                     local wd = wagon_data[i]
-                    local real = wd.inv.insert { name = name, count = sum }
+                    local real = wd.inv.insert { name = name, count = sum, quality = item.quality }
                     sum = sum - real
                     if sum == 0 then break end
                 end
@@ -592,19 +629,22 @@ local function compute_train_filters(device)
         end
     else
         -- content back
-        for name, count in pairs(train_content) do
+        for _, item in pairs(train_content) do
+            local name = item.name
+            local count = item.count
             local remaining = count
             for _, w in pairs(wagons) do
                 local inv = get_wagon_inventory(w)
-                local real = inv.insert { name = name, count = remaining }
+                local real = inv.insert { name = name, count = remaining, quality = item.quality }
                 remaining = remaining - real
                 if remaining == 0 then break end
             end
             if remaining > 0 then
                 local w = wagons[1]
-                w.surface.spill_item_stack(w.position,
-                    { name = name, count = remaining },
-                    false, device.wagon.force --[[@as LuaForce]])
+                w.surface.spill_item_stack { position = w.position,
+                    stack = { name = name, count = remaining, quality = item.quality },
+                    enable_looted = false,
+                    force = device.wagon.force --[[@as LuaForce]] }
             end
         end
     end
@@ -613,17 +653,22 @@ local function compute_train_filters(device)
 end
 
 ---Get filters from inventory
----@param device Device
 ---@param inv LuaInventory
 ---@return FilterTable
-local function get_filters(device, inv)
+local function get_filters(inv)
     ---@type FilterTable
     local filter_counts = {}
     local max = #inv
 
     for index = 1, max do
         local item = inv.get_filter(index)
-        if item then filter_counts[item] = (filter_counts[item] or 0) + 1 end
+        if item then
+            local qname = item.name
+            ---@cast qname -nil
+            local quality = item.quality
+            if quality and quality ~= "normal" then qname = qname .. "/" .. quality end
+            filter_counts[qname] = (filter_counts[qname] or 0) + 1
+        end
     end
 
     return filter_counts
@@ -631,11 +676,11 @@ end
 
 ---@param device Device
 local function clear_signal(device)
-    local cb = device.out_red.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]
-    cb.parameters = nil
+    local section = (device.out_red.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+    section.filters = {}
 
-    cb = device.out_green.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]
-    cb.parameters = nil
+    section = (device.out_green.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+    section.filters = {}
 
     device.idle_count = commons.idle_count
 end
@@ -742,12 +787,17 @@ local function clear_inserters_internal(device, inserters, request_map)
             device.inserter_tick = 0
         else
             local stack = inserter.held_stack
-            if stack and stack.valid_for_read and stack.name and
-                not request_map[stack.name] then
-                if not stuck then stuck = {} end
-                local name = stack.name
-                stuck[name] = (stuck[name] or 0) + stack.count
-                stack.clear()
+            if stack and stack.valid_for_read then
+                local qname = stack.name
+                if qname then
+                    local quality = stack.quality.name
+                    if quality ~= "normal" then qname = qname .. "/" .. quality end
+                    if not request_map[qname] then
+                        if not stuck then stuck = {} end
+                        stuck[qname] = (stuck[qname] or 0) + stack.count
+                        stack.clear()
+                    end
+                end
             end
         end
     end
@@ -757,15 +807,18 @@ local function clear_inserters_internal(device, inserters, request_map)
         local position = first.pickup_position
         local containers = first.surface.find_entities_filtered {
             position = position,
-            type = { "container", "logistic-container", "linked-container" }
+            type = { "container", "logistic-container", "linked-container", "infinity-container" }
         }
         if #containers >= 1 then
             local container = containers[1]
             local inv = container.get_inventory(defines.inventory.chest)
             ---@cast inv -nil
-            for name, count in pairs(stuck) do
+            for qname, count in pairs(stuck) do
+                local split = gmatch(qname, item_splitter)
+                local name = split()
+                local quality = split()
                 ---@cast count -integer +uint
-                inv.insert({ name = name, count = count })
+                inv.insert({ name = name, count = count, quality = quality })
             end
         end
     end
@@ -929,7 +982,7 @@ local function process_device(device)
                 device.target_content_changed = true
             end
         end
-        filter_counts = get_filters(device, inv)
+        filter_counts = get_filters(inv)
         device.filter_counts = filter_counts
         device.filter_tick = gametick + 120
         if not next(filter_counts) then return end
@@ -938,7 +991,16 @@ local function process_device(device)
         end
     end
 
-    local content = inv.get_contents()
+    local base_content = inv.get_contents()
+    ---@type FilterTable
+    local content = {}
+    for _, item in pairs(base_content) do
+        local qname = item.name
+        local quality = item.quality
+        if quality and quality ~= "normal" then qname = qname .. "/" .. quality end
+        content[qname] = item.count
+    end
+
     ---@type ItemTable
     local requested_map = {}
 
@@ -946,15 +1008,20 @@ local function process_device(device)
     if not device.target_content then
         return
     end
-    for item, count in pairs(filter_counts) do
-        if delivery_content[item] then
+    for qname, count in pairs(filter_counts) do
+        if delivery_content[qname] then
             local item_count
-            local stack_size = game.item_prototypes[item].stack_size
-            item_count = stack_size * count
 
-            local inv_count = content[item]
-            if inv_count then item_count = item_count - inv_count end
-            if item_count > 0 then requested_map[item] = item_count end
+            local name = gmatch(qname, item_splitter)()
+            local proto = prototypes.item[name]
+            if proto then
+                local stack_size = proto.stack_size
+                item_count = stack_size * count
+
+                local inv_count = content[qname]
+                if inv_count then item_count = item_count - inv_count end
+                if item_count > 0 then requested_map[qname] = item_count end
+            end
         end
     end
 
@@ -962,21 +1029,30 @@ local function process_device(device)
         local filter_set = {}
         local index = 1
         ---@type Item
-        for name, count in pairs(requested_map) do
-            table.insert(filter_set, {
-                signal = { type = 'item', name = name },
-                count = count,
-                index = index
-            })
+        for qname, count in pairs(requested_map) do
+            local split = gmatch(qname, item_splitter)
+            local name = split()
+            local quality = split()
+            if not quality then
+                table.insert(filter_set, {
+                    value = name,
+                    min = count
+                })
+            else
+                table.insert(filter_set, {
+                    value = { name = name, quality = quality, comparator = "=" },
+                    min = count
+                })
+            end
             index = index + 1
         end
 
-        local red_cb = device.out_red.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]
-        red_cb.parameters = filter_set
+        local red_section = (device.out_red.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+        red_section.filters = filter_set
 
         local inserter_clear_map = requested_map
-        local green_cb = device.out_green.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]
-        green_cb.parameters = filter_set
+        local green_section = (device.out_green.get_or_create_control_behavior() --[[@ as LuaConstantCombinatorControlBehavior]]).get_section(1)
+        green_section.filters = filter_set
         inserter_clear_map = requested_map
 
         clear_inserters(device, inserter_clear_map)
@@ -1062,6 +1138,31 @@ remote.add_interface("transfert_controller", {
 })
 
 
+local function migration_2_0_0(data)
+
+    if not devices_runtime.map then
+        return
+    end
+
+    ---@type Device
+    for _, device in pairs(devices_runtime.map) do
+        if device.target_content then
+            local to_remove = {}
+            for qname in pairs(device.target_content) do
+                local split = gmatch(qname, item_splitter)
+                local name = split()
+                if not prototypes.item[name] then
+                    to_remove[name] = true
+                end
+            end
+            for name in pairs(to_remove) do
+                device.target_content[name] = nil
+            end
+        end 
+    end
+
+end
+
 local function migration_1_0_1(data)
     if not devices_runtime.map then
         return
@@ -1077,8 +1178,11 @@ local function migration_1_0_1(data)
     end
 end
 
+
 local migrations_table = {
-    ["1.0.1"] = migration_1_0_1
+    ["1.0.1"] = migration_1_0_1,
+    ["2.0.0"] = migration_2_0_0
+
 }
 
 local function on_configuration_changed(data)

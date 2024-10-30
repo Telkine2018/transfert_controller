@@ -1,6 +1,9 @@
 
 local tools = require("scripts.tools")
 
+---@alias QName string
+---@class FilterTable : table<QName, integer>        
+
 ---@class Device : EntityWithIdAndProcess
 ---@field id Entity.unit_number             @ Unit number
 ---@field entity LuaEntity                  @ Associated entity
@@ -23,7 +26,7 @@ local tools = require("scripts.tools")
 ---@field filter_reset boolean                      @ Reset filter reset and reload
 ---@field disabled boolean                          @ Reset filter reset and reload
 ---@field pickup_map table<int, LuaEntity>          @ Chest for pick
----@field target_content table<string, integer>     @ Target train content after loading
+---@field target_content table<QName, integer>     @ Target train content after loading
 ---@field target_content_changed boolean?
 ---@field not_connected_to_yatm boolean
 ---@field unloading boolean?
