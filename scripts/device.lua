@@ -493,7 +493,7 @@ local function dispatch_slots_in_wagons3(device, wagons, signal_map)
         local max_wd = nil
         for _, wd in ipairs(wagon_data) do
             if wd.remaining >= ss.count then
-                max_wd = ws
+                max_wd = wd
                 break
             end
         end
@@ -613,17 +613,19 @@ local function compute_train_filters(device)
             local n = #wagon_data
             local wcount = math.floor(count / n)
             local sum = 0
-            for i = 1, n do
-                local wd = wagon_data[i]
-                local real = wd.inv.insert { name = name, count = wcount, quality = item.quality }
-                sum = sum + real
-            end
-            if sum < count then
+            if wcount > 0 then
                 for i = 1, n do
+                    local wd = wagon_data[i]
+                    local real = wd.inv.insert { name = name, count = wcount, quality = item.quality }
+                    sum = sum + real
+                end
+            end
+            if sum > 0 and sum < count then
+                for i = 1, n do
+                    if sum <= 0 then break end
                     local wd = wagon_data[i]
                     local real = wd.inv.insert { name = name, count = sum, quality = item.quality }
                     sum = sum - real
-                    if sum == 0 then break end
                 end
             end
         end

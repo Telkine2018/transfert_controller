@@ -47,7 +47,6 @@ local function create_base(base_name)
             end
             spec.filename = png(base_name .. '-displays')
             spec.shift = table.deepcopy(decider.greater_symbol_sprites[dir].shift)
-            log(serpent.block(spec))
         end
         ::skip::
     end
