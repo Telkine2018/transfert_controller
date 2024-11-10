@@ -30,6 +30,7 @@ local tools = require("scripts.tools")
 ---@field target_content_changed boolean?
 ---@field not_connected_to_yatm boolean
 ---@field unloading boolean?
+---@field current_image integer
 
 ---@class GlobalsPerPlayer
 ---@field selected_uis number[]
@@ -65,8 +66,8 @@ end
 
 def.flags = {
 
-    filter_source = { mask=0x3, shift=0 },
-    enabled = { mask = 0x1, shift = 2 },
+    filter_source = { mask=0x7, shift=0 },
+    enabled = { mask = 0x1, shift = 3 },
     filling_mode = { mask = 0x0f, shift=4 }
 }
 

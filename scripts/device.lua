@@ -269,6 +269,29 @@ local function get_inventory(entity)
     return inv, gui_type
 end
 
+local image_operations = {
+    "+",
+    "-",
+    "*"
+}
+
+local image_waiting = 1
+local image_connected = 2
+local image_transfert = 3
+
+---@param device Device
+---@param image_index integer
+local function set_image(device, image_index)
+    if image_index ~= device.current_image and device and device.entity.valid then
+        local cb = device.entity.get_or_create_control_behavior() --[[@as LuaArithmeticCombinatorControlBehavior]]
+        local parameters = cb.parameters
+        parameters.operation = image_operations[image_index]
+        cb.parameters = parameters
+        device.current_image = image_index
+    end
+end
+
+
 ---Clear wagons filters
 ---@param device Device
 ---@param set_bar_to_1 boolean | nil
@@ -685,6 +708,8 @@ local function clear_signal(device)
     section.filters = {}
 
     device.idle_count = commons.idle_count
+
+    set_image(device, image_waiting)
 end
 
 ---@param device Device
@@ -963,6 +988,7 @@ local function process_device(device)
         device.wagon_pos = wagon.position
         device.filter_counts = nil
         find_inserters(device)
+        set_image(device, image_connected)
     else
         inv = get_inventory(wagon)
     end
@@ -991,6 +1017,7 @@ local function process_device(device)
         if not device.target_content then
             device.target_content = device.filter_counts
         end
+        set_image(device, image_transfert)
     end
 
     local base_content = inv.get_contents()
@@ -1141,7 +1168,6 @@ remote.add_interface("transfert_controller", {
 
 
 local function migration_2_0_0(data)
-
     if not devices_runtime.map then
         return
     end
@@ -1160,9 +1186,8 @@ local function migration_2_0_0(data)
             for name in pairs(to_remove) do
                 device.target_content[name] = nil
             end
-        end 
+        end
     end
-
 end
 
 local function migration_1_0_1(data)
