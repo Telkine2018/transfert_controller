@@ -111,6 +111,7 @@ local tech = {
     icon_size = 144,
     icon = png('tech'),
     effects = { { type = 'unlock-recipe', recipe = commons.device_name } },
+    prerequisites = { 'railway' },
     unit = {
         count = 200,
         ingredients = {
