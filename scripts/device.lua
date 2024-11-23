@@ -708,6 +708,7 @@ local function clear_signal(device)
     section.filters = {}
 
     device.idle_count = commons.idle_count
+    device.target_content = nil
 
     set_image(device, image_waiting)
 end
