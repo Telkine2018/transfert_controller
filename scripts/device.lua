@@ -546,9 +546,9 @@ local function compute_train_filters(device)
 
     if device.filter_source == FilterSource.internal_yatm then
         if not (device.target_content and next(device.target_content)) and remote.interfaces["yet_another_train_manager"] then
-            device.target_content = remote.call("yet_another_train_manager",
-                "register_transfert_controller", wagon.train.id, device.id, true)
+            local target_content = remote.call("yet_another_train_manager", "register_transfert_controller", wagon.train.id, device.id, true)
             device.target_content_changed = true
+            device.target_content = target_content
         else
             target_content = device.target_content
         end
@@ -604,6 +604,7 @@ local function compute_train_filters(device)
         wagons[i].clear_items_inside()
     end
 
+    ---@cast target_content -nil
     for _, item in pairs(train_content) do
         local qname = item.name
         local quality = item.quality
@@ -708,7 +709,6 @@ local function clear_signal(device)
     section.filters = {}
 
     device.idle_count = commons.idle_count
-    device.target_content = nil
 
     set_image(device, image_waiting)
 end
@@ -920,6 +920,7 @@ local function process_device(device)
         end
 
         device.wagon = nil
+        device.target_content = nil
         clear_wagons_filters(device)
 
         if #wagons == 0 then
@@ -998,16 +999,15 @@ local function process_device(device)
 
     local gametick = game.tick
     local filter_counts = device.filter_counts
+    
     if not filter_counts
         or ((device.filter_tick < gametick) and (device.wagon.train.manual_mode or not next(filter_counts)))
         or device.target_content == nil then
         if device.filter_source ~= FilterSource.none then
             compute_train_filters(device)
         else
-            if not (device.target_content and next(device.target_content))
-                and remote.interfaces["yet_another_train_manager"] then
-                device.target_content = remote.call("yet_another_train_manager",
-                    "register_transfert_controller", wagon.train.id, device.id, false)
+            if not (device.target_content and next(device.target_content)) and remote.interfaces["yet_another_train_manager"] then
+                device.target_content = remote.call("yet_adnother_train_manager", "register_transfert_controller", wagon.train.id, device.id, false)
                 device.target_content_changed = true
             end
         end
