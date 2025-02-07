@@ -28,6 +28,8 @@ local filterSourceToWireConnectorId = {
 
 local detection_area = settings.startup[commons.prefix .. "_detection_area"].value
 
+local yet_another_train_manager_it = "yet_another_train_manager"
+
 local wire_connector = defines.wire_connector_id
 -----------------------------------------------------
 
@@ -545,8 +547,8 @@ local function compute_train_filters(device)
     local target_content
 
     if device.filter_source == FilterSource.internal_yatm then
-        if not (device.target_content and next(device.target_content)) and remote.interfaces["yet_another_train_manager"] then
-            local target_content = remote.call("yet_another_train_manager", "register_transfert_controller", wagon.train.id, device.id, true)
+        if not (device.target_content and next(device.target_content)) and remote.interfaces[yet_another_train_manager_it] then
+            local target_content = remote.call(yet_another_train_manager_it, "register_transfert_controller", wagon.train.id, device.id, true)
             device.target_content_changed = true
             device.target_content = target_content
         else
@@ -1006,8 +1008,8 @@ local function process_device(device)
         if device.filter_source ~= FilterSource.none then
             compute_train_filters(device)
         else
-            if not (device.target_content and next(device.target_content)) and remote.interfaces["yet_another_train_manager"] then
-                device.target_content = remote.call("yet_adnother_train_manager", "register_transfert_controller", wagon.train.id, device.id, false)
+            if not (device.target_content and next(device.target_content)) and remote.interfaces[yet_another_train_manager_it] then
+                device.target_content = remote.call(yet_another_train_manager_it, "register_transfert_controller", wagon.train.id, device.id, false)
                 device.target_content_changed = true
             end
         end
