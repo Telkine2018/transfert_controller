@@ -912,10 +912,6 @@ local function process_device(device)
         wagon.position.y ~= wagon_pos.y or math.abs(wagon.speed) > 0 or
         (wagon.train.manual_mode or not wagon.train.station) then
 
-        if device.filter_source == FilterSource.internal_yatm and not device.target_content  then
-            return
-        end
-            
         local wagons = entity.surface.find_entities_filtered {
             area = { { pos.x - detection_area, pos.y - detection_area }, { pos.x + detection_area, pos.y + detection_area } },
             type = "cargo-wagon"
