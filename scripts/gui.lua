@@ -56,7 +56,7 @@ function Gui.create(player, entity)
     local drag = titleflow.add{type="empty-widget",style="flib_titlebar_drag_handle"}
     drag.drag_target = frame
     titleflow.add{type="sprite-button",name=prefix.."-close", style="frame_action_button", mouse_button_filter={"left"}, 
-        sprite="utility/close_white", hovered_sprite="utility/close_black" }
+        sprite="utility/close", hovered_sprite="utility/close_black" }
 
     local inner_frame = frame.add{type ="frame", style="inside_shallow_frame_with_padding",direction="vertical"}
 
@@ -158,7 +158,7 @@ tools.on_event(defines.events.on_gui_closed, on_gui_closed)
 tools.on_event(defines.events.on_gui_opened, on_gui_opened)
 
 local function on_load() 
-    devices = global.controllers --[[@as EntityMap<Device>]]
+    devices = storage.controllers --[[@as EntityMap<Device>]]
 end
 tools.on_load(on_load)
 
@@ -186,7 +186,7 @@ local function register_mapping(bp, mapping)
                 bp.set_blueprint_entity_tags(index, {
                     group = device.group,
                     factory = device.factory,
-                    alerts = device.alerts and game.table_to_json(device.alerts)
+                    alerts = device.alerts and helpers.table_to_json(device.alerts)
                 })
             end
         end
@@ -215,7 +215,7 @@ local function on_selected_entity_changed(e)
 
     if vars.selected_uis then
         for _, id in pairs(vars.selected_uis) do
-            rendering.destroy(id)
+            id.destroy()
         end
         vars.selected_uis = nil
     end

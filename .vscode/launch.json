@@ -17,7 +17,8 @@
             "type": "factoriomod",
             "request": "launch",
             "name": "Factorio Mod Debug (Profile)",
-            "hookMode": "profile"
+            "hookMode": "profile",
+            "hookControl": ["transfert_controller"],
         }
     ]
 }
