@@ -148,6 +148,21 @@ if mods["nullius"] then
     }
 end
 
+if mods["pycoalprocessing"] then
+
+	tech.unit = {
+		count = 100,
+		ingredients = {
+			{ 'automation-science-pack', 1 },
+		},
+		time = 15
+	}
+
+    recipe.ingredients = {
+        { type = "item", name = 'electronic-circuit', amount = 10 }
+    }
+end
+
 data:extend {
 
     -- Item
